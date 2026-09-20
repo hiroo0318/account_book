@@ -35,6 +35,13 @@ export default function App() {
   const total = useMemo(() => entries.reduce((sum, entry) => sum + entry.amount, 0), [entries])
 
   useEffect(() => {
+    if (!sheet) return undefined
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [sheet])
+
+  useEffect(() => {
     if (!hasSupabaseConfig) { setError('Supabase 연결 정보가 없습니다. .env.local 파일을 확인해 주세요.'); setAuthState('signed-out'); return undefined }
     let live = true
     async function syncMember(session) {
