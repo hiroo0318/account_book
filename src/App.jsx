@@ -38,6 +38,7 @@ export default function App() {
     if (!sheet) return undefined
     const scrollY = window.scrollY
     const bodyStyle = document.body.style
+    const htmlStyle = document.documentElement.style
     const previousStyles = {
       overflow: bodyStyle.overflow,
       position: bodyStyle.position,
@@ -46,7 +47,10 @@ export default function App() {
       right: bodyStyle.right,
       width: bodyStyle.width,
     }
+    const previousHtmlOverflow = htmlStyle.overflow
     const visualViewport = window.visualViewport
+    const sheetElement = document.querySelector('.entry-sheet')
+    let touchStartY = 0
     const syncKeyboardOffset = () => {
       const keyboardOffset = visualViewport
         ? Math.max(0, window.innerHeight - visualViewport.height - visualViewport.offsetTop)
@@ -59,13 +63,29 @@ export default function App() {
     bodyStyle.left = '0'
     bodyStyle.right = '0'
     bodyStyle.width = '100%'
+    htmlStyle.overflow = 'hidden'
     syncKeyboardOffset()
+    const rememberTouchStart = (event) => { touchStartY = event.touches[0]?.clientY ?? 0 }
+    const preventScrollChaining = (event) => {
+      const target = event.target instanceof Element ? event.target.closest('.entry-sheet') : null
+      if (!target || !sheetElement) { event.preventDefault(); return }
+      const deltaY = (event.touches[0]?.clientY ?? touchStartY) - touchStartY
+      const isScrollable = sheetElement.scrollHeight > sheetElement.clientHeight
+      const isAtTop = sheetElement.scrollTop <= 0
+      const isAtBottom = sheetElement.scrollTop + sheetElement.clientHeight >= sheetElement.scrollHeight - 1
+      if (!isScrollable || (deltaY > 0 && isAtTop) || (deltaY < 0 && isAtBottom)) event.preventDefault()
+    }
     visualViewport?.addEventListener('resize', syncKeyboardOffset)
     visualViewport?.addEventListener('scroll', syncKeyboardOffset)
+    document.addEventListener('touchstart', rememberTouchStart, { passive: true })
+    document.addEventListener('touchmove', preventScrollChaining, { passive: false })
     return () => {
       visualViewport?.removeEventListener('resize', syncKeyboardOffset)
       visualViewport?.removeEventListener('scroll', syncKeyboardOffset)
+      document.removeEventListener('touchstart', rememberTouchStart)
+      document.removeEventListener('touchmove', preventScrollChaining)
       Object.assign(bodyStyle, previousStyles)
+      htmlStyle.overflow = previousHtmlOverflow
       document.documentElement.style.removeProperty('--keyboard-offset')
       window.scrollTo(0, scrollY)
     }
