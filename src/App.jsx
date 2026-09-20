@@ -31,6 +31,10 @@ export default function App() {
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [quickItemName, setQuickItemName] = useState('')
+  const [quickAmount, setQuickAmount] = useState('')
+  const [quickSaving, setQuickSaving] = useState(false)
+  const [quickError, setQuickError] = useState('')
   const [sheet, setSheet] = useState(null)
   const total = useMemo(() => entries.reduce((sum, entry) => sum + entry.amount, 0), [entries])
 
@@ -92,6 +96,12 @@ export default function App() {
   }, [sheet])
 
   useEffect(() => {
+    if (!notice) return undefined
+    const timer = window.setTimeout(() => setNotice(''), 2000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  useEffect(() => {
     if (!hasSupabaseConfig) { setError('Supabase 연결 정보가 없습니다. .env.local 파일을 확인해 주세요.'); setAuthState('signed-out'); return undefined }
     let live = true
     async function syncMember(session) {
@@ -121,9 +131,20 @@ export default function App() {
     if (oauthError) setError(oauthError.message)
   }
   async function signOut() { await supabase.auth.signOut(); setSheet(null) }
-  function openAddSheet() { setNotice(''); setSheet({ mode: 'add', itemName: '', amount: '' }) }
   function openEditSheet(entry) { setNotice(''); setSheet({ mode: 'edit', id: entry.id, itemName: entry.item_name, amount: String(entry.amount) }) }
   function updateSheet(field, value) { setSheet((current) => ({ ...current, [field]: field === 'amount' ? value.replace(/[^0-9]/g, '') : value })) }
+  async function addQuickEntry(event) {
+    event.preventDefault()
+    const itemName = quickItemName.trim()
+    const amount = Number(quickAmount)
+    if (!itemName) return setQuickError('항목을 입력해 주세요.')
+    if (!Number.isInteger(amount) || amount < 1 || amount > 99999999) return setQuickError('금액은 1원 이상의 정수로 입력해 주세요.')
+    setQuickSaving(true); setQuickError('')
+    const { error: addError } = await supabase.from('expense_entries').insert({ item_name: itemName, amount, month_key: monthKey })
+    setQuickSaving(false)
+    if (addError) return setQuickError(addError.message)
+    setQuickItemName(''); setQuickAmount(''); setNotice('내역을 추가했어요.'); await loadEntries()
+  }
   async function saveEntry(event) {
     event.preventDefault(); const itemName = sheet.itemName.trim(); const amount = Number(sheet.amount)
     if (!itemName) return setError('항목명을 입력해 주세요.')
@@ -136,10 +157,10 @@ export default function App() {
     setSheet(null); setNotice(sheet.mode === 'add' ? '내역을 추가했어요.' : '내역을 수정했어요.'); loadEntries()
   }
   async function deleteEntry() {
-    if (!sheet?.id || !window.confirm('이 내역을 삭제할까요?')) return
+    if (!sheet?.id) return
     setSaving(true); setError(''); const { error: deleteError } = await supabase.from('expense_entries').delete().eq('id', sheet.id); setSaving(false)
     if (deleteError) return setError(deleteError.message)
-    setSheet(null); setNotice('내역을 삭제했어요.'); loadEntries()
+    setSheet(null); setNotice('삭제되었습니다.'); loadEntries()
   }
 
   if (authState !== 'active') {
@@ -148,10 +169,11 @@ export default function App() {
   }
   return <main className="app-shell"><section className="ledger" aria-label="월별 식비 가계부">
     <header className="month-header"><button className="month-button" type="button" aria-label="이전 달" onClick={() => setMonthKey((value) => shiftMonth(value, -1))}><Icon name="left" /></button><h1>{formatMonth(monthKey)}</h1><button className="month-button" type="button" aria-label="다음 달" onClick={() => setMonthKey((value) => shiftMonth(value, 1))}><Icon name="right" /></button></header>
-    <section className="summary-card" aria-label="이번 달 사용 금액"><p>이번 달 사용 금액</p><strong className="summary-total"><span>{money.format(total)}</span><em>원</em></strong><button className="add-button" type="button" onClick={openAddSheet}><Icon name="plus" /> <span>추가</span></button></section>
-    <section className="entry-section"><div className="section-heading"><h2>상세 내역</h2>{!loading && <span>{entries.length}건</span>}</div>{notice && <p className="notice" role="status">{notice}</p>}{error && <p className="error" role="alert">{error}</p>}
+    <section className="summary-card" aria-label="이번 달 사용 금액"><p>이번 달 사용 금액</p><strong className="summary-total"><span>{money.format(total)}</span><em>원</em></strong></section>
+    <section className="quick-entry" aria-label="빠른 지출 입력"><form onSubmit={addQuickEntry}><label className="quick-field"><span className="sr-only">항목</span><input value={quickItemName} onChange={(event) => setQuickItemName(event.target.value)} placeholder="항목" maxLength="80" /></label><label className="quick-field quick-amount"><span className="sr-only">금액</span><input inputMode="numeric" value={quickAmount} onChange={(event) => setQuickAmount(event.target.value.replace(/[^0-9]/g, ''))} placeholder="금액" /><em>원</em></label><button className="quick-save" type="submit" disabled={quickSaving} aria-label="내역 추가"><Icon name="plus" /></button></form>{quickError && <p className="quick-error" role="alert">{quickError}</p>}</section>
+    <section className="entry-section"><div className="section-heading"><h2>상세 내역</h2>{!loading && <span>{entries.length}건</span>}</div>{error && <p className="error" role="alert">{error}</p>}
       <div className="entry-list" aria-busy={loading}>{loading ? <p className="state-message">내역을 불러오는 중…</p> : entries.length === 0 ? <p className="state-message">아직 기록한 지출이 없어요.<br />이번 달 내역을 추가해 보세요.</p> : entries.map((entry) => <button className="entry-row" type="button" key={entry.id} onClick={() => openEditSheet(entry)}><span>{entry.item_name}</span><strong>{formatMoney(entry.amount)}</strong></button>)}</div>
       <button className="ledger-signout" type="button" onClick={signOut}>로그아웃</button>
     </section>
-  </section>{sheet && <div className="sheet-backdrop" onMouseDown={() => !saving && setSheet(null)}><section className="entry-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-handle" /><div className="sheet-header"><h2 id="sheet-title">{sheet.mode === 'add' ? '지출 추가' : '지출 수정'}</h2><button className="close-button" type="button" aria-label="닫기" onClick={() => !saving && setSheet(null)}><Icon name="close" /></button></div><form onSubmit={saveEntry}><label>항목<input autoFocus value={sheet.itemName} onChange={(event) => updateSheet('itemName', event.target.value)} placeholder="예: 장보기" maxLength="80" /></label><label>금액<span className="amount-input"><input inputMode="numeric" value={sheet.amount} onChange={(event) => updateSheet('amount', event.target.value)} placeholder="0" /><em>원</em></span></label><div className={`entry-actions ${sheet.mode === 'edit' ? 'is-edit' : ''}`}>{sheet.mode === 'edit' && <button className="delete-button" type="button" disabled={saving} onClick={deleteEntry}>내역 삭제</button>}<button className="save-button" type="submit" disabled={saving}>{saving ? '저장 중…' : '저장'}</button></div></form></section></div>}</main>
+  </section>{notice && <p className="toast" role="status">{notice}</p>}{sheet && <div className="sheet-backdrop" onMouseDown={() => !saving && setSheet(null)}><section className="entry-sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" onMouseDown={(event) => event.stopPropagation()}><div className="sheet-handle" /><div className="sheet-header"><h2 id="sheet-title">{sheet.mode === 'add' ? '지출 추가' : '지출 수정'}</h2><button className="close-button" type="button" aria-label="닫기" onClick={() => !saving && setSheet(null)}><Icon name="close" /></button></div><form onSubmit={saveEntry}><label>항목<input autoFocus value={sheet.itemName} onChange={(event) => updateSheet('itemName', event.target.value)} placeholder="예: 장보기" maxLength="80" /></label><label>금액<span className="amount-input"><input inputMode="numeric" value={sheet.amount} onChange={(event) => updateSheet('amount', event.target.value)} placeholder="0" /><em>원</em></span></label><div className={`entry-actions ${sheet.mode === 'edit' ? 'is-edit' : ''}`}>{sheet.mode === 'edit' && <button className="delete-button" type="button" disabled={saving} onClick={deleteEntry}>내역 삭제</button>}<button className="save-button" type="submit" disabled={saving}>{saving ? '저장 중…' : '저장'}</button></div></form></section></div>}</main>
 }
